@@ -52,10 +52,12 @@ from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers.utils.torch_utils import is_compiled_module
 
+
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.26.0.dev0")
 
 logger = get_logger(__name__)
+
 
 DATASET_NAME_MAPPING = {
     "lambdalabs/pokemon-blip-captions": ("image", "text"),
@@ -63,13 +65,13 @@ DATASET_NAME_MAPPING = {
 
 
 def save_model_card(
-        repo_id: str,
-        images=None,
-        validation_prompt=None,
-        base_model=str,
-        dataset_name=str,
-        repo_folder=None,
-        vae_path=None,
+    repo_id: str,
+    images=None,
+    validation_prompt=None,
+    base_model=str,
+    dataset_name=str,
+    repo_folder=None,
+    vae_path=None,
 ):
     img_str = ""
     for i, image in enumerate(images):
@@ -102,7 +104,7 @@ Special VAE used for training: {vae_path}.
 
 
 def import_model_class_from_model_name_or_path(
-        pretrained_model_name_or_path: str, revision: str, subfolder: str = "text_encoder"
+    pretrained_model_name_or_path: str, revision: str, subfolder: str = "text_encoder"
 ):
     text_encoder_config = PretrainedConfig.from_pretrained(
         pretrained_model_name_or_path, subfolder=subfolder, revision=revision
@@ -380,7 +382,7 @@ def parse_args(input_args=None):
         type=float,
         default=None,
         help="SNR weighting gamma to be used if rebalancing the loss. Recommended value is 5.0. "
-             "More details here: https://arxiv.org/abs/2303.09556.",
+        "More details here: https://arxiv.org/abs/2303.09556.",
     )
     parser.add_argument("--use_ema", action="store_true", help="Whether to use EMA model.")
     parser.add_argument(
@@ -455,9 +457,6 @@ def parse_args(input_args=None):
         "--enable_xformers_memory_efficient_attention", action="store_true", help="Whether or not to use xformers."
     )
     parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
-
-    parser.add_argument("--freeze_unet_top", action="store_true",
-                        help="Freeze only the 3rd first and last layers of the down and up sample layers in the unet")
 
     if input_args is not None:
         args = parser.parse_args(input_args)
@@ -678,38 +677,6 @@ def main(args):
     # Set unet as trainable.
     unet.train()
 
-    if args.freeze_unet_top:
-        def freeze_params(params):
-            for param in params:
-                param.requires_grad = False
-
-        # Set first and last blocks as frozen
-        freeze_params(unet.down_blocks[:2].parameters())
-        freeze_params(unet.down_blocks[2].attentions.parameters())
-        freeze_params(unet.down_blocks[2].resnets[0].parameters())
-        freeze_params(unet.up_blocks[-3:].parameters())
-        # freeze_params(unet.up_blocks[-3].attentions[1:].parameters())
-        # freeze_params(unet.up_blocks[-3].attentions[0].proj_out.parameters())
-        # freeze_params(unet.up_blocks[-3].attentions[0].transformer_blocks[:].parameters())
-        # freeze_params(unet.up_blocks[-3].resnets[1:].parameters())
-        # freeze_params(unet.up_blocks[-3].upsamplers.parameters())
-        # freeze_params(unet.mid_block.parameters())
-        freeze_params(unet.time_embedding.parameters())
-        freeze_params(unet.add_embedding.parameters())
-        freeze_params(unet.conv_norm_out.parameters())
-        freeze_params(unet.conv_in.parameters())
-        freeze_params(unet.conv_out.parameters())
-
-    # # # Loop through the model's named parameters
-    # for name, param in unet.named_parameters():
-    #     if param.requires_grad:
-    #         # Count the number of parameters and print their location
-    #         print(f"{name}: {param.numel()} trainable parameters")
-
-    # Alternatively, to get the total count of trainable parameters
-    total_params = sum(p.numel() for p in unet.parameters() if p.requires_grad)
-    print(f"*****Total trainable parameters*****: {total_params}")
-
     # For mixed precision training we cast all non-trainable weigths to half-precision
     # as these weights are only used for inference, keeping weights in full precision is not required.
     weight_dtype = torch.float32
@@ -792,7 +759,7 @@ def main(args):
 
     if args.scale_lr:
         args.learning_rate = (
-                args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
+            args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
         )
 
     # Use 8-bit Adam for lower memory usage or to fine-tune the model in 16GB GPUs
@@ -927,8 +894,7 @@ def main(args):
         # details: https://github.com/huggingface/diffusers/pull/4038#discussion_r1266078401
         new_fingerprint = Hasher.hash(args)
         new_fingerprint_for_vae = Hasher.hash("vae")
-        train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, new_fingerprint=new_fingerprint,
-                                          load_from_cache_file=True)
+        train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, new_fingerprint=new_fingerprint)
         train_dataset = train_dataset.map(
             compute_vae_encodings_fn,
             batched=True,
@@ -1132,12 +1098,13 @@ def main(args):
                     # Since we predict the noise instead of x_0, the original formulation is slightly changed.
                     # This is discussed in Section 4.2 of the same paper.
                     snr = compute_snr(noise_scheduler, timesteps)
-                    if noise_scheduler.config.prediction_type == "v_prediction":
-                        # Velocity objective requires that we add one to SNR values before we divide by them.
-                        snr = snr + 1
-                    mse_loss_weights = (
-                            torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(dim=1)[0] / snr
-                    )
+                    mse_loss_weights = torch.stack([snr, args.snr_gamma * torch.ones_like(timesteps)], dim=1).min(
+                        dim=1
+                    )[0]
+                    if noise_scheduler.config.prediction_type == "epsilon":
+                        mse_loss_weights = mse_loss_weights / snr
+                    elif noise_scheduler.config.prediction_type == "v_prediction":
+                        mse_loss_weights = mse_loss_weights / (snr + 1)
 
                     loss = F.mse_loss(model_pred.float(), target.float(), reduction="none")
                     loss = loss.mean(dim=list(range(1, len(loss.shape)))) * mse_loss_weights
