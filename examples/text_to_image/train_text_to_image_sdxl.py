@@ -1342,19 +1342,19 @@ def main(args):
 def save_to_bucket(args, blocking=False):
     if args.output_bucket is not None:
         if args.output_bucket.startswith("gs://"):
-            logger.info(f"Syncing output directory {args.output_dir} to {args.output_bucket}")
+            print(f"Syncing output directory {args.output_dir} to {args.output_bucket}")
             sync_cmd = f"gsutil rsync -r {args.output_dir} {args.output_bucket}/"
             if blocking:
                 subprocess.run(sync_cmd, shell=True, check=True)
             else:
                 subprocess.Popen(sync_cmd, shell=True)
         else:
-            logger.warning(
+            print(
                 f"Output bucket {args.output_bucket} is not a valid GCS bucket. Currently only GCS"
                 f" buckets are available for bucket sync. Skipping syncing."
             )
     else:
-        logger.warning("No output bucket provided. Skipping syncing.")
+        print("No output bucket provided. Skipping syncing.")
 
 
 if __name__ == "__main__":
