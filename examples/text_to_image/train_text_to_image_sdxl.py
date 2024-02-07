@@ -23,6 +23,7 @@ import math
 import os
 import random
 import shutil
+import subprocess
 from pathlib import Path
 
 import accelerate
@@ -227,6 +228,12 @@ def parse_args(input_args=None):
         type=str,
         default="sdxl-model-finetuned",
         help="The output directory where the model predictions and checkpoints will be written.",
+    )
+    parser.add_argument(
+        "--output_bucket",
+        type=str,
+        default=None,
+        help="A bucket path to which the output directory will be synced after writing checkpoints.",
     )
     parser.add_argument(
         "--cache_dir",
@@ -1155,6 +1162,16 @@ def main(args):
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
+
+                        if args.output_bucket is not None:
+                            if args.output_bucket.startswith("gs://"):
+                                sync_cmd = f"gsutil rsync -r {args.output_dir} {args.output_bucket}/"
+                                subprocess.Popen(sync_cmd, shell=True)
+                            else:
+                                logger.warning(
+                                    f"Output bucket {args.output_bucket} is not a valid GCS bucket. Currently only GCS"
+                                    f" buckets are available for bucket sync. Skipping syncing."
+                                )
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
