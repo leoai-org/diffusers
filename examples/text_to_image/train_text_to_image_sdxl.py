@@ -1342,7 +1342,7 @@ def main(args):
 def save_to_bucket(args, blocking=False):
     if args.output_bucket is not None:
         if args.output_bucket.startswith("gs://"):
-            print(f"Syncing output directory {args.output_dir} to {args.output_bucket}")
+            print(f"Syncing output directory {args.output_dir} to {args.output_bucket}, blocking = {blocking}")
             sync_cmd = f"gsutil rsync -r {args.output_dir} {args.output_bucket}/"
             if blocking:
                 subprocess.run(sync_cmd, shell=True, check=True)
