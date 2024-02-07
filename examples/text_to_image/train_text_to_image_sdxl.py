@@ -690,10 +690,12 @@ def main(args):
                 param.requires_grad = False
 
         # Set first and last blocks as frozen
-        freeze_params(unet.down_blocks[:2].parameters())
-        freeze_params(unet.down_blocks[2].attentions.parameters())
-        freeze_params(unet.down_blocks[2].resnets[0].parameters())
-        freeze_params(unet.up_blocks[-3:].parameters())
+        # freeze_params(unet.down_blocks[:2].parameters())
+        freeze_params(unet.down_blocks.parameters())
+        # freeze_params(unet.down_blocks[2].attentions.parameters())
+        # freeze_params(unet.down_blocks[2].resnets[0].parameters())
+        freeze_params(unet.up_blocks.parameters())
+        # freeze_params(unet.up_blocks[-3:].parameters())
         # freeze_params(unet.up_blocks[-3].attentions[1:].parameters())
         # freeze_params(unet.up_blocks[-3].attentions[0].proj_out.parameters())
         # freeze_params(unet.up_blocks[-3].attentions[0].transformer_blocks[:].parameters())
@@ -1195,7 +1197,7 @@ def main(args):
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
-                        save_to_bucket(args)
+                        save_to_bucket(args, blocking=False)
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
@@ -1332,18 +1334,20 @@ def main(args):
                 ignore_patterns=["step_*", "epoch_*"],
             )
 
-        save_to_bucket(args)
-
+        save_to_bucket(args, blocking=True)
 
     accelerator.end_training()
 
 
-def save_to_bucket(args):
+def save_to_bucket(args, blocking=False):
     if args.output_bucket is not None:
         if args.output_bucket.startswith("gs://"):
             logger.info(f"Syncing output directory {args.output_dir} to {args.output_bucket}")
             sync_cmd = f"gsutil rsync -r {args.output_dir} {args.output_bucket}/"
-            subprocess.Popen(sync_cmd, shell=True)
+            if blocking:
+                subprocess.run(sync_cmd, shell=True, check=True)
+            else:
+                subprocess.Popen(sync_cmd, shell=True)
         else:
             logger.warning(
                 f"Output bucket {args.output_bucket} is not a valid GCS bucket. Currently only GCS"
