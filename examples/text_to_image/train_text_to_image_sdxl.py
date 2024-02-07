@@ -1195,15 +1195,7 @@ def main(args):
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
-                        if args.output_bucket is not None:
-                            if args.output_bucket.startswith("gs://"):
-                                sync_cmd = f"gsutil rsync -r {args.output_dir} {args.output_bucket}/"
-                                subprocess.Popen(sync_cmd, shell=True)
-                            else:
-                                logger.warning(
-                                    f"Output bucket {args.output_bucket} is not a valid GCS bucket. Currently only GCS"
-                                    f" buckets are available for bucket sync. Skipping syncing."
-                                )
+                        save_to_bucket(args)
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
@@ -1340,7 +1332,25 @@ def main(args):
                 ignore_patterns=["step_*", "epoch_*"],
             )
 
+        save_to_bucket(args)
+
+
     accelerator.end_training()
+
+
+def save_to_bucket(args):
+    if args.output_bucket is not None:
+        if args.output_bucket.startswith("gs://"):
+            logger.info(f"Syncing output directory {args.output_dir} to {args.output_bucket}")
+            sync_cmd = f"gsutil rsync -r {args.output_dir} {args.output_bucket}/"
+            subprocess.Popen(sync_cmd, shell=True)
+        else:
+            logger.warning(
+                f"Output bucket {args.output_bucket} is not a valid GCS bucket. Currently only GCS"
+                f" buckets are available for bucket sync. Skipping syncing."
+            )
+    else:
+        logger.warning("No output bucket provided. Skipping syncing.")
 
 
 if __name__ == "__main__":
