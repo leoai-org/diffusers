@@ -684,40 +684,6 @@ def main(args):
     # Set unet as trainable.
     unet.train()
 
-    if True:
-        def freeze_params(params):
-            for param in params:
-                param.requires_grad = False
-
-        # Set first and last blocks as frozen
-        # freeze_params(unet.down_blocks[:2].parameters())
-        freeze_params(unet.down_blocks.parameters())
-        # freeze_params(unet.down_blocks[2].attentions.parameters())
-        # freeze_params(unet.down_blocks[2].resnets[0].parameters())
-        freeze_params(unet.up_blocks.parameters())
-        # freeze_params(unet.up_blocks[-3:].parameters())
-        # freeze_params(unet.up_blocks[-3].attentions[1:].parameters())
-        # freeze_params(unet.up_blocks[-3].attentions[0].proj_out.parameters())
-        # freeze_params(unet.up_blocks[-3].attentions[0].transformer_blocks[:].parameters())
-        # freeze_params(unet.up_blocks[-3].resnets[1:].parameters())
-        # freeze_params(unet.up_blocks[-3].upsamplers.parameters())
-        # freeze_params(unet.mid_block.parameters())
-        freeze_params(unet.time_embedding.parameters())
-        freeze_params(unet.add_embedding.parameters())
-        freeze_params(unet.conv_norm_out.parameters())
-        freeze_params(unet.conv_in.parameters())
-        freeze_params(unet.conv_out.parameters())
-
-    # # # Loop through the model's named parameters
-    # for name, param in unet.named_parameters():
-    #     if param.requires_grad:
-    #         # Count the number of parameters and print their location
-    #         print(f"{name}: {param.numel()} trainable parameters")
-
-    # Alternatively, to get the total count of trainable parameters
-    total_params = sum(p.numel() for p in unet.parameters() if p.requires_grad)
-    print(f"*****Total trainable parameters*****: {total_params}")
-
     # For mixed precision training we cast all non-trainable weigths to half-precision
     # as these weights are only used for inference, keeping weights in full precision is not required.
     weight_dtype = torch.float32
@@ -1197,7 +1163,7 @@ def main(args):
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
-                        # save_to_bucket(args, blocking=False)
+                        save_to_bucket(args, blocking=False)
 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
