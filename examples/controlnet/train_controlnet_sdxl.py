@@ -22,6 +22,7 @@ import os
 import random
 import shutil
 import subprocess
+import cv2
 from pathlib import Path
 
 import accelerate
@@ -40,6 +41,7 @@ from PIL import Image
 from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import AutoTokenizer, PretrainedConfig
+import torchvision.transforms as T
 
 import diffusers
 from diffusers import (
@@ -728,20 +730,14 @@ def prepare_train_dataset(dataset, accelerator):
         ]
     )
 
-    conditioning_image_transforms = transforms.Compose(
-        [
-            transforms.Resize(args.resolution, interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.CenterCrop(args.resolution),
-            transforms.ToTensor(),
-        ]
-    )
+    # conditioning_image_transforms = get_conditioning_image_transforms()
 
     def preprocess_train(examples):
         images = [image.convert("RGB") for image in examples[args.image_column]]
         images = [image_transforms(image) for image in images]
 
         conditioning_images = [image.convert("RGB") for image in examples[args.conditioning_image_column]]
-        conditioning_images = [conditioning_image_transforms(image) for image in conditioning_images]
+        # conditioning_images = [conditioning_image_transforms(image) for image in conditioning_images]
 
         examples["pixel_values"] = images
         examples["conditioning_pixel_values"] = conditioning_images
@@ -754,11 +750,104 @@ def prepare_train_dataset(dataset, accelerator):
     return dataset
 
 
+def get_conditioning_image_transforms():
+    return transforms.Compose(
+        [
+            transforms.Resize(args.resolution, interpolation=transforms.InterpolationMode.BILINEAR),
+            transforms.CenterCrop(args.resolution),
+            transforms.ToTensor(),
+        ]
+    )
+
+
+def nms(x, t, s):
+    x = cv2.GaussianBlur(x.astype(np.float32), (0, 0), s)
+
+    f1 = np.array([[0, 0, 0], [1, 1, 1], [0, 0, 0]], dtype=np.uint8)
+    f2 = np.array([[0, 1, 0], [0, 1, 0], [0, 1, 0]], dtype=np.uint8)
+    f3 = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=np.uint8)
+    f4 = np.array([[0, 0, 1], [0, 1, 0], [1, 0, 0]], dtype=np.uint8)
+
+    y = np.zeros_like(x)
+
+    for f in [f1, f2, f3, f4]:
+        np.putmask(y, cv2.dilate(x, kernel=f) == x, x)
+
+    z = np.zeros_like(y, dtype=np.uint8)
+    z[y > t] = 255
+    return z
+
+
+def process_scrible(x):
+    detect_threshold, nms_threshold, sigma1, sigma2,elastic_mangtitude, elastic_smoothness = get_scrible_params()
+    x = np.ndarray(x)
+    input_image = HWC3(x)
+    detected_map = nms(input_image, nms_threshold, sigma1)
+    detected_map = cv2.GaussianBlur(detected_map, (0, 0), sigma2)
+    detected_map[detected_map > detect_threshold] = 255
+    detected_map[detected_map < 255] = 0
+    detected_map_copy = detected_map.copy()
+    try:
+        elastic_transformer = T.ElasticTransform(alpha=elastic_mangtitude, sigma=elastic_smoothness)
+        detected_map = elastic_transformer(torch.Tensor(detected_map).permute(2, 0, 1))
+        detected_map = detected_map.permute(1, 2, 0).numpy()
+    except:
+        detected_map = detected_map_copy
+        print('Exception in elastic transform')
+    detected_map = detected_map.astype(np.uint8)
+    detected_map = 255 - detected_map
+    return  detected_map
+
+
+def get_scrible_params(
+    nms_min_threshold = 110,
+    nms_max_threshold = 140,
+    min_sigma1 = 2.0,
+    max_sigma1 = 3.0,
+    min_sigma2 = 1.0,
+    max_sigma2 = 3.0,
+    min_detect_threshold = 3.0,
+    max_detect_threshold = 30.0,
+    elastic_parameters= {"gentle": {"min_elastic_mangtitude":30.0, "max_elastic_mangtitude":80.0, "min_elastic_smoothness":3.0, "max_elastic_smoothness":8.0}}
+    ):
+    sigma1 = random.uniform(min_sigma1, max_sigma1)
+    sigma2 = random.uniform(min_sigma2, max_sigma2)
+    nms_threshold = random.randint(nms_min_threshold, nms_max_threshold)
+    detect_threshold = random.randint(min_detect_threshold, max_detect_threshold)
+    elastic_transform = random.choice(list(elastic_parameters.values()))
+    elastic_mangtitude = random.uniform(elastic_transform["min_elastic_mangtitude"], elastic_transform["max_elastic_mangtitude"])
+    elastic_smoothness = random.uniform(elastic_transform["min_elastic_smoothness"], elastic_transform["max_elastic_smoothness"])
+    return detect_threshold, nms_threshold, sigma1, sigma2,elastic_mangtitude,elastic_smoothness
+
+
+def HWC3(x):
+    assert x.dtype == np.uint8
+    if x.ndim == 2:
+        x = x[:, :, None]
+    assert x.ndim == 3
+    H, W, C = x.shape
+    assert C == 1 or C == 3 or C == 4
+    if C == 3:
+        return x
+    if C == 1:
+        return np.concatenate([x, x, x], axis=2)
+    if C == 4:
+        color = x[:, :, 0:3].astype(np.float32)
+        alpha = x[:, :, 3:4].astype(np.float32) / 255.0
+        y = color * alpha + 255.0 * (1.0 - alpha)
+        y = y.clip(0, 255).astype(np.uint8)
+        return y
+
+
 def collate_fn(examples, precomputed_latents=False):
     pixel_values = torch.stack([example["pixel_values"] for example in examples])
     pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
 
-    conditioning_pixel_values = torch.stack([example["conditioning_pixel_values"] for example in examples])
+    conditioning_image_transforms = get_conditioning_image_transforms()
+    conditioning_images = [example["conditioning_pixel_values"] for example in examples]
+    conditioning_images = [conditioning_image_transforms(process_scrible(cond_image)) for cond_image in conditioning_images]
+    # conditioning_pixel_values = torch.stack([example["conditioning_pixel_values"] for example in examples])
+    conditioning_pixel_values = torch.stack(conditioning_images)
     conditioning_pixel_values = conditioning_pixel_values.to(memory_format=torch.contiguous_format).float()
 
     prompt_ids = torch.stack([torch.tensor(example["prompt_embeds"]) for example in examples])
@@ -768,6 +857,7 @@ def collate_fn(examples, precomputed_latents=False):
 
     if precomputed_latents:
         latents = torch.stack([torch.tensor(example["latents"]) for example in examples])
+        # not sure if this is necessary
         # latents = latents.to(memory_format=torch.contiguous_format).float()
     else:
         latents = None
@@ -780,6 +870,38 @@ def collate_fn(examples, precomputed_latents=False):
         "unet_added_conditions": {"text_embeds": add_text_embeds, "time_ids": add_time_ids},
     }
 
+
+def compute_vae_encodings(batch, vae, weight_dtype, to_cpu_on_end=True):
+    # Convert images to latent space
+    if args.pretrained_vae_model_name_or_path is not None:
+        pixel_values = batch["pixel_values"].to(dtype=weight_dtype)
+    else:
+        pixel_values = batch["pixel_values"]
+    latents = vae.encode(pixel_values).latent_dist.sample()
+    latents = latents * vae.config.scaling_factor
+    if args.pretrained_vae_model_name_or_path is None:
+        latents = latents.to(weight_dtype)
+    if to_cpu_on_end:
+        latents = latents.cpu()
+    return {"latents": latents}
+
+
+def save_to_bucket(args, blocking=False):
+    if args.output_bucket is not None:
+        if args.output_bucket.startswith("gs://"):
+            print(f"Syncing output directory {args.output_dir} to {args.output_bucket}, blocking = {blocking}")
+            sync_cmd = f"gsutil rsync -r {args.output_dir} {args.output_bucket}/"
+            if blocking:
+                subprocess.run(sync_cmd, shell=True, check=True)
+            else:
+                subprocess.Popen(sync_cmd, shell=True)
+        else:
+            print(
+                f"Output bucket {args.output_bucket} is not a valid GCS bucket. Currently only GCS"
+                f" buckets are available for bucket sync. Skipping syncing."
+            )
+    else:
+        print("No output bucket provided. Skipping syncing.")
 
 def main(args):
     if args.report_to == "wandb" and args.hub_token is not None:
@@ -1294,39 +1416,6 @@ def main(args):
         save_to_bucket(args, blocking=True)
 
     accelerator.end_training()
-
-
-def compute_vae_encodings(batch, vae, weight_dtype, to_cpu_on_end=True):
-    # Convert images to latent space
-    if args.pretrained_vae_model_name_or_path is not None:
-        pixel_values = batch["pixel_values"].to(dtype=weight_dtype)
-    else:
-        pixel_values = batch["pixel_values"]
-    latents = vae.encode(pixel_values).latent_dist.sample()
-    latents = latents * vae.config.scaling_factor
-    if args.pretrained_vae_model_name_or_path is None:
-        latents = latents.to(weight_dtype)
-    if to_cpu_on_end:
-        latents = latents.cpu()
-    return {"latents": latents}
-
-
-def save_to_bucket(args, blocking=False):
-    if args.output_bucket is not None:
-        if args.output_bucket.startswith("gs://"):
-            print(f"Syncing output directory {args.output_dir} to {args.output_bucket}, blocking = {blocking}")
-            sync_cmd = f"gsutil rsync -r {args.output_dir} {args.output_bucket}/"
-            if blocking:
-                subprocess.run(sync_cmd, shell=True, check=True)
-            else:
-                subprocess.Popen(sync_cmd, shell=True)
-        else:
-            print(
-                f"Output bucket {args.output_bucket} is not a valid GCS bucket. Currently only GCS"
-                f" buckets are available for bucket sync. Skipping syncing."
-            )
-    else:
-        print("No output bucket provided. Skipping syncing.")
 
 
 if __name__ == "__main__":
