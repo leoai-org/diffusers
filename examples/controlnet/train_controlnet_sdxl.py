@@ -21,6 +21,7 @@ import math
 import os
 import random
 import shutil
+import subprocess
 from pathlib import Path
 
 import accelerate
@@ -274,6 +275,18 @@ def parse_args(input_args=None):
         type=str,
         default="controlnet-model",
         help="The output directory where the model predictions and checkpoints will be written.",
+    )
+    parser.add_argument(
+        "--output_bucket",
+        type=str,
+        default=None,
+        help="A bucket path to which the output directory will be synced after writing checkpoints.",
+    )
+    parser.add_argument(
+        "--precompute_latents",
+        action="store_true",
+        default=False,
+        help="Whether or not to precompute latents for the VAE. This is useful for large and preserving GPU memory.",
     )
     parser.add_argument(
         "--cache_dir",
@@ -741,7 +754,7 @@ def prepare_train_dataset(dataset, accelerator):
     return dataset
 
 
-def collate_fn(examples):
+def collate_fn(examples, precomputed_latents=False):
     pixel_values = torch.stack([example["pixel_values"] for example in examples])
     pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
 
@@ -753,7 +766,14 @@ def collate_fn(examples):
     add_text_embeds = torch.stack([torch.tensor(example["text_embeds"]) for example in examples])
     add_time_ids = torch.stack([torch.tensor(example["time_ids"]) for example in examples])
 
+    if precomputed_latents:
+        latents = torch.stack([torch.tensor(example["latents"]) for example in examples])
+        # latents = latents.to(memory_format=torch.contiguous_format).float()
+    else:
+        latents = None
+
     return {
+        "latents": latents,
         "pixel_values": pixel_values,
         "conditioning_pixel_values": conditioning_pixel_values,
         "prompt_ids": prompt_ids,
@@ -1011,31 +1031,47 @@ def main(args):
     text_encoders = [text_encoder_one, text_encoder_two]
     tokenizers = [tokenizer_one, tokenizer_two]
     train_dataset = get_train_dataset(args, accelerator)
+
     compute_embeddings_fn = functools.partial(
         compute_embeddings,
         text_encoders=text_encoders,
         tokenizers=tokenizers,
         proportion_empty_prompts=args.proportion_empty_prompts,
     )
+    compute_vae_encodings_fn = functools.partial(compute_vae_encodings, vae=vae, weight_dtype=weight_dtype)
+
     with accelerator.main_process_first():
         from datasets.fingerprint import Hasher
 
         # fingerprint used by the cache for the other processes to load the result
         # details: https://github.com/huggingface/diffusers/pull/4038#discussion_r1266078401
-        new_fingerprint = Hasher.hash(args)
+        new_fingerprint = Hasher.hash(args.dataset_name if args.dataset_name is not None else args.train_data_dir)
         train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, new_fingerprint=new_fingerprint)
+
+    # Then get the training dataset ready to be passed to the dataloader.
+    train_dataset = prepare_train_dataset(train_dataset, accelerator)
+
+    # added map to compute vae encodings
+    if args.precompute_latents:
+        with accelerator.main_process_first():
+            from datasets.fingerprint import Hasher
+            new_fingerprint_for_vae = Hasher.hash(f"vae_{args.dataset_name}" if args.dataset_name is not None else f"vae_{args.train_data_dir}")
+            train_dataset = train_dataset.map(
+                compute_vae_encodings_fn,
+                batched=True,
+                batch_size=args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps,
+                new_fingerprint=new_fingerprint_for_vae,
+                load_from_cache_file=True
+            )
 
     del text_encoders, tokenizers
     gc.collect()
     torch.cuda.empty_cache()
 
-    # Then get the training dataset ready to be passed to the dataloader.
-    train_dataset = prepare_train_dataset(train_dataset, accelerator)
-
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         shuffle=True,
-        collate_fn=collate_fn,
+        collate_fn=functools.partial(collate_fn, precomputed_latents=args.precompute_latents),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
     )
@@ -1132,15 +1168,10 @@ def main(args):
     for epoch in range(first_epoch, args.num_train_epochs):
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(controlnet):
-                # Convert images to latent space
-                if args.pretrained_vae_model_name_or_path is not None:
-                    pixel_values = batch["pixel_values"].to(dtype=weight_dtype)
+                if not args.precompute_latents:
+                    latents = compute_vae_encodings(batch, vae, weight_dtype, to_cpu_on_end=False)["latents"]
                 else:
-                    pixel_values = batch["pixel_values"]
-                latents = vae.encode(pixel_values).latent_dist.sample()
-                latents = latents * vae.config.scaling_factor
-                if args.pretrained_vae_model_name_or_path is None:
-                    latents = latents.to(weight_dtype)
+                    latents = batch["latents"].to(dtype=weight_dtype)
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
@@ -1226,6 +1257,8 @@ def main(args):
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
+                        save_to_bucket(args, blocking=False)
+
                     if args.validation_prompt is not None and global_step % args.validation_steps == 0:
                         image_logs = log_validation(
                             vae, unet, controlnet, args, accelerator, weight_dtype, global_step
@@ -1258,7 +1291,42 @@ def main(args):
                 ignore_patterns=["step_*", "epoch_*"],
             )
 
+        save_to_bucket(args, blocking=True)
+
     accelerator.end_training()
+
+
+def compute_vae_encodings(batch, vae, weight_dtype, to_cpu_on_end=True):
+    # Convert images to latent space
+    if args.pretrained_vae_model_name_or_path is not None:
+        pixel_values = batch["pixel_values"].to(dtype=weight_dtype)
+    else:
+        pixel_values = batch["pixel_values"]
+    latents = vae.encode(pixel_values).latent_dist.sample()
+    latents = latents * vae.config.scaling_factor
+    if args.pretrained_vae_model_name_or_path is None:
+        latents = latents.to(weight_dtype)
+    if to_cpu_on_end:
+        latents = latents.cpu()
+    return {"latents": latents}
+
+
+def save_to_bucket(args, blocking=False):
+    if args.output_bucket is not None:
+        if args.output_bucket.startswith("gs://"):
+            print(f"Syncing output directory {args.output_dir} to {args.output_bucket}, blocking = {blocking}")
+            sync_cmd = f"gsutil rsync -r {args.output_dir} {args.output_bucket}/"
+            if blocking:
+                subprocess.run(sync_cmd, shell=True, check=True)
+            else:
+                subprocess.Popen(sync_cmd, shell=True)
+        else:
+            print(
+                f"Output bucket {args.output_bucket} is not a valid GCS bucket. Currently only GCS"
+                f" buckets are available for bucket sync. Skipping syncing."
+            )
+    else:
+        print("No output bucket provided. Skipping syncing.")
 
 
 if __name__ == "__main__":
