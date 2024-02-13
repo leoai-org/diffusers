@@ -871,17 +871,22 @@ def collate_fn(examples, precomputed_latents=False):
     }
 
 
-def compute_vae_encodings(batch, vae, weight_dtype, to_cpu_on_end=True):
-    # Convert images to latent space
-    if args.pretrained_vae_model_name_or_path is not None:
-        pixel_values = batch["pixel_values"].to(dtype=weight_dtype)
+def compute_vae_encodings(batch, vae, weight_dtype, device):
+    if args.precompute_latents:
+        pixel_values = torch.stack(batch["pixel_values"])
+        pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
     else:
         pixel_values = batch["pixel_values"]
-    latents = vae.encode(pixel_values).latent_dist.sample()
+    # Convert images to latent space
+    if args.pretrained_vae_model_name_or_path is not None:
+        pixel_values = pixel_values.to(dtype=weight_dtype)
+    else:
+        pixel_values = batch["pixel_values"]
+    latents = vae.encode(pixel_values.to(device)).latent_dist.sample()
     latents = latents * vae.config.scaling_factor
     if args.pretrained_vae_model_name_or_path is None:
         latents = latents.to(weight_dtype)
-    if to_cpu_on_end:
+    if args.precompute_latents:
         latents = latents.cpu()
     return {"latents": latents}
 
@@ -1160,7 +1165,7 @@ def main(args):
         tokenizers=tokenizers,
         proportion_empty_prompts=args.proportion_empty_prompts,
     )
-    compute_vae_encodings_fn = functools.partial(compute_vae_encodings, vae=vae, weight_dtype=weight_dtype)
+    compute_vae_encodings_fn = functools.partial(compute_vae_encodings, vae=vae, weight_dtype=weight_dtype, device=accelerator.device)
 
     with accelerator.main_process_first():
         from datasets.fingerprint import Hasher
@@ -1168,6 +1173,7 @@ def main(args):
         # fingerprint used by the cache for the other processes to load the result
         # details: https://github.com/huggingface/diffusers/pull/4038#discussion_r1266078401
         new_fingerprint = Hasher.hash(args.dataset_name if args.dataset_name is not None else args.train_data_dir)
+        print('starting text embedding mapping')
         train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, new_fingerprint=new_fingerprint)
 
     # Then get the training dataset ready to be passed to the dataloader.
@@ -1178,6 +1184,7 @@ def main(args):
         with accelerator.main_process_first():
             from datasets.fingerprint import Hasher
             new_fingerprint_for_vae = Hasher.hash(f"vae_{args.dataset_name}" if args.dataset_name is not None else f"vae_{args.train_data_dir}")
+            print('starting vae embedding mapping')
             train_dataset = train_dataset.map(
                 compute_vae_encodings_fn,
                 batched=True,
@@ -1291,7 +1298,7 @@ def main(args):
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(controlnet):
                 if not args.precompute_latents:
-                    latents = compute_vae_encodings(batch, vae, weight_dtype, to_cpu_on_end=False)["latents"]
+                    latents = compute_vae_encodings(batch, vae, weight_dtype, device=accelerator.device)["latents"]
                 else:
                     latents = batch["latents"].to(dtype=weight_dtype)
 
