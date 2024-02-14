@@ -1061,7 +1061,7 @@ def main(args):
     unet.requires_grad_(False)
     text_encoder_one.requires_grad_(False)
     text_encoder_two.requires_grad_(False)
-    controlnet.train()
+    # controlnet.train()
 
     if args.enable_xformers_memory_efficient_attention:
         if is_xformers_available():
