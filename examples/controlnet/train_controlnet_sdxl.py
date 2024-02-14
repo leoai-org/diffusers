@@ -146,6 +146,7 @@ def log_validation(vae, unet, controlnet, args, accelerator, weight_dtype, step)
 
                 tracker.writer.add_images(validation_prompt, formatted_images, step, dataformats="NHWC")
         elif tracker.name == "wandb":
+            print('logging to wandb validation images')
             formatted_images = []
 
             for log in image_logs:
@@ -164,8 +165,8 @@ def log_validation(vae, unet, controlnet, args, accelerator, weight_dtype, step)
             logger.warn(f"image logging not implemented for {tracker.name}")
 
     pipeline.to("cpu")
-    del pipeline
-    gc.collect()
+    # del pipeline
+    # gc.collect()
     torch.cuda.empty_cache()
 
     return image_logs
