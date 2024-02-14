@@ -1174,12 +1174,14 @@ def main(args):
     )
     compute_vae_encodings_fn = functools.partial(compute_vae_encodings, vae=vae, weight_dtype=weight_dtype, device=accelerator.device)
 
+    data_fingerprint_str = f'{args.dataset_name}_{args.train_data_dir}_ver{train_dataset.version}'
+
     with accelerator.main_process_first():
         from datasets.fingerprint import Hasher
 
         # fingerprint used by the cache for the other processes to load the result
         # details: https://github.com/huggingface/diffusers/pull/4038#discussion_r1266078401
-        new_fingerprint = Hasher.hash(args.dataset_name if args.dataset_name is not None else args.train_data_dir)
+        new_fingerprint = Hasher.hash(data_fingerprint_str)
         print('starting text embedding mapping')
         train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, new_fingerprint=new_fingerprint, load_from_cache_file=not args.recalc_cached_embeddings)
 
@@ -1190,7 +1192,7 @@ def main(args):
     if args.precompute_latents:
         with accelerator.main_process_first():
             from datasets.fingerprint import Hasher
-            new_fingerprint_for_vae = Hasher.hash(f"vae_{args.dataset_name}" if args.dataset_name is not None else f"vae_{args.train_data_dir}")
+            new_fingerprint_for_vae = Hasher.hash(f"vae{args.pretrained_vae_model_name_or_path}_res_{args.resolution}_{data_fingerprint_str}")
             print('starting vae embedding mapping')
             train_dataset = train_dataset.map(
                 compute_vae_encodings_fn,
