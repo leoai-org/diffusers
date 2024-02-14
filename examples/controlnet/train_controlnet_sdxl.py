@@ -1145,9 +1145,7 @@ def main(args):
         vae.to(accelerator.device, dtype=weight_dtype)
     else:
         vae.to(accelerator.device, dtype=torch.float32)
-    unet.to(accelerator.device, dtype=weight_dtype)
-    text_encoder_one.to(accelerator.device, dtype=weight_dtype)
-    text_encoder_two.to(accelerator.device, dtype=weight_dtype)
+    move_modules_to_device(accelerator.device, text_encoder_one, text_encoder_two, unet, weight_dtype)
 
     # Here, we compute not just the text embeddings but also the additional embeddings
     # needed for the SD XL UNet to operate.
@@ -1413,11 +1411,14 @@ def main(args):
                         save_to_bucket(args, blocking=False)
 
                     if args.validation_prompt is not None and global_step % args.validation_steps == 0:
-                        unet.to('cpu', dtype=weight_dtype)
+                        move_modules_to_device('cpu', text_encoder_one, text_encoder_two, unet,
+                                               weight_dtype)
+
                         image_logs = log_validation(
                             unet, controlnet, args, accelerator, weight_dtype, global_step
                         )
-                        unet.to(accelerator.device, dtype=weight_dtype)
+                        move_modules_to_device(accelerator.device, text_encoder_one, text_encoder_two, unet,
+                                               weight_dtype)
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
@@ -1449,6 +1450,12 @@ def main(args):
         save_to_bucket(args, blocking=True)
 
     accelerator.end_training()
+
+
+def move_modules_to_device(device, text_encoder_one, text_encoder_two, unet, weight_dtype):
+    unet.to(device, dtype=weight_dtype)
+    text_encoder_one.to(device, dtype=weight_dtype)
+    text_encoder_two.to(device, dtype=weight_dtype)
 
 
 if __name__ == "__main__":
