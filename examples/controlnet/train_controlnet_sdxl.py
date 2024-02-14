@@ -1181,7 +1181,7 @@ def main(args):
         # details: https://github.com/huggingface/diffusers/pull/4038#discussion_r1266078401
         new_fingerprint = Hasher.hash(args.dataset_name if args.dataset_name is not None else args.train_data_dir)
         print('starting text embedding mapping')
-        train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, new_fingerprint=new_fingerprint)
+        train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, new_fingerprint=new_fingerprint, load_from_cache_file=not args.recalc_cached_embeddings)
 
     # Then get the training dataset ready to be passed to the dataloader.
     train_dataset = prepare_train_dataset(train_dataset, accelerator)
@@ -1210,7 +1210,6 @@ def main(args):
         collate_fn=functools.partial(collate_fn, precomputed_latents=args.precompute_latents),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
-        load_from_cache_file=not args.recalc_cached_embeddings
     )
 
     # Scheduler and math around the number of training steps.
