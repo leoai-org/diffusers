@@ -780,7 +780,7 @@ def nms(x, t, s):
 
 def process_scrible(x):
     detect_threshold, nms_threshold, sigma1, sigma2,elastic_mangtitude, elastic_smoothness = get_scrible_params()
-    x = np.ndarray(x)
+    x = np.array(x)
     input_image = HWC3(x)
     detected_map = nms(input_image, nms_threshold, sigma1)
     detected_map = cv2.GaussianBlur(detected_map, (0, 0), sigma2)
@@ -796,7 +796,8 @@ def process_scrible(x):
         print('Exception in elastic transform')
     detected_map = detected_map.astype(np.uint8)
     detected_map = 255 - detected_map
-    return  detected_map
+    detected_map = Image.fromarray(detected_map)
+    return detected_map
 
 
 def get_scrible_params(
