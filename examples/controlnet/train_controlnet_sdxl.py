@@ -1418,6 +1418,7 @@ def main(args):
                         image_logs = log_validation(
                             unet, vae, controlnet, args, accelerator, weight_dtype, global_step
                         )
+                        vae.to('cpu')
                         move_modules_to_device(accelerator.device, text_encoder_one, text_encoder_two, unet,
                                                weight_dtype)
 
