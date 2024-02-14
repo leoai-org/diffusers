@@ -83,15 +83,15 @@ def init_vae(args):
     return vae
 
 
-def log_validation(unet, controlnet, args, accelerator, weight_dtype, step):
+def log_validation(unet, vae, controlnet, args, accelerator, weight_dtype, step):
     logger.info("Running validation... ")
 
     controlnet = accelerator.unwrap_model(controlnet)
-    vae = init_vae(args)
+    # vae = init_vae(args)
     pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
         args.pretrained_model_name_or_path,
         vae=vae,
-        unet=accelerator.unwrap_model(unet),
+        unet=unet,
         controlnet=controlnet,
         revision=args.revision,
         variant=args.variant,
@@ -1213,7 +1213,8 @@ def main(args):
                 new_fingerprint=new_fingerprint_for_vae,
                 load_from_cache_file=not args.recalc_cached_embeddings
             )
-        del vae
+        # del vae
+        vae.to("cpu")
 
     del text_encoders, tokenizers
     gc.collect()
@@ -1415,7 +1416,7 @@ def main(args):
                                                weight_dtype)
 
                         image_logs = log_validation(
-                            unet, controlnet, args, accelerator, weight_dtype, global_step
+                            unet, vae, controlnet, args, accelerator, weight_dtype, global_step
                         )
                         move_modules_to_device(accelerator.device, text_encoder_one, text_encoder_two, unet,
                                                weight_dtype)
