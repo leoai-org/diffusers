@@ -768,18 +768,6 @@ def get_conditioning_image_transforms():
     )
 
 
-def move_moduls_to_device(device, args, text_encoder_one, text_encoder_two, unet, vae, weight_dtype):
-    # Move vae, unet and text_encoder to device and cast to weight_dtype
-    # The VAE is in float32 to avoid NaN losses.
-    if args.pretrained_vae_model_name_or_path is not None:
-        vae.to(device, dtype=weight_dtype)
-    else:
-        vae.to(device, dtype=torch.float32)
-    unet.to(device, dtype=weight_dtype)
-    text_encoder_one.to(device, dtype=weight_dtype)
-    text_encoder_two.to(device, dtype=weight_dtype)
-
-
 def nms(x, t, s):
     x = cv2.GaussianBlur(x.astype(np.float32), (0, 0), s)
 
@@ -1146,7 +1134,15 @@ def main(args):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    move_moduls_to_device(accelerator.device, args, text_encoder_one, text_encoder_two, unet, vae, weight_dtype)
+    # Move vae, unet and text_encoder to device and cast to weight_dtype
+    # The VAE is in float32 to avoid NaN losses.
+    if args.pretrained_vae_model_name_or_path is not None:
+        vae.to(accelerator.device, dtype=weight_dtype)
+    else:
+        vae.to(accelerator.device, dtype=torch.float32)
+    unet.to(accelerator.device, dtype=weight_dtype)
+    text_encoder_one.to(accelerator.device, dtype=weight_dtype)
+    text_encoder_two.to(accelerator.device, dtype=weight_dtype)
 
     # Here, we compute not just the text embeddings but also the additional embeddings
     # needed for the SD XL UNet to operate.
@@ -1214,6 +1210,7 @@ def main(args):
                 new_fingerprint=new_fingerprint_for_vae,
                 load_from_cache_file=not args.recalc_cached_embeddings
             )
+        del vae
 
     del text_encoders, tokenizers
     gc.collect()
@@ -1411,14 +1408,11 @@ def main(args):
                         save_to_bucket(args, blocking=False)
 
                     if args.validation_prompt is not None and global_step % args.validation_steps == 0:
-                        move_moduls_to_device('cpu', args, text_encoder_one, text_encoder_two, unet, vae,
-                                              weight_dtype)
-                        torch.cuda.empty_cache()
+                        unet.to('cpu', dtype=weight_dtype)
                         image_logs = log_validation(
                             vae, unet, controlnet, args, accelerator, weight_dtype, global_step
                         )
-                        move_moduls_to_device(accelerator.device, args, text_encoder_one, text_encoder_two, unet, vae,
-                                              weight_dtype)
+                        unet.to(accelerator.device, dtype=weight_dtype)
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
