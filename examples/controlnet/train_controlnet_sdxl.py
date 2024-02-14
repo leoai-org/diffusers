@@ -1413,6 +1413,7 @@ def main(args):
                     if args.validation_prompt is not None and global_step % args.validation_steps == 0:
                         move_moduls_to_device('cpu', args, text_encoder_one, text_encoder_two, unet, vae,
                                               weight_dtype)
+                        torch.cuda.empty_cache()
                         image_logs = log_validation(
                             vae, unet, controlnet, args, accelerator, weight_dtype, global_step
                         )
