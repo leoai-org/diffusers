@@ -88,7 +88,6 @@ def log_validation(unet, controlnet, args, accelerator, weight_dtype, step):
 
     controlnet = accelerator.unwrap_model(controlnet)
     vae = init_vae(args)
-    vae.requires_grad_(False)
     pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
         args.pretrained_model_name_or_path,
         vae=vae,
@@ -134,7 +133,7 @@ def log_validation(unet, controlnet, args, accelerator, weight_dtype, step):
         images = []
 
         for _ in range(args.num_validation_images):
-            with torch.autocast("cuda"):
+            with torch.torch.cuda.amp.autocast():
                 image = pipeline(
                     prompt=validation_prompt, image=validation_image, num_inference_steps=20, generator=generator
                 ).images[0]
