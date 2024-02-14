@@ -767,7 +767,6 @@ def get_conditioning_image_transforms():
     )
 
 
-
 def move_moduls_to_device(device, args, text_encoder_one, text_encoder_two, unet, vae, weight_dtype):
     # Move vae, unet and text_encoder to device and cast to weight_dtype
     # The VAE is in float32 to avoid NaN losses.
@@ -778,7 +777,8 @@ def move_moduls_to_device(device, args, text_encoder_one, text_encoder_two, unet
     unet.to(device, dtype=weight_dtype)
     text_encoder_one.to(device, dtype=weight_dtype)
     text_encoder_two.to(device, dtype=weight_dtype)
-    \
+
+
 def nms(x, t, s):
     x = cv2.GaussianBlur(x.astype(np.float32), (0, 0), s)
 
