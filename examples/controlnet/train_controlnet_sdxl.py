@@ -88,6 +88,7 @@ def log_validation(unet, controlnet, args, accelerator, weight_dtype, step):
 
     controlnet = accelerator.unwrap_model(controlnet)
     vae = init_vae(args)
+    vae.requires_grad_(False)
     pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
         args.pretrained_model_name_or_path,
         vae=vae,
