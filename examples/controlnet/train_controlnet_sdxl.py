@@ -1145,7 +1145,9 @@ def main(args):
         vae.to(accelerator.device, dtype=weight_dtype)
     else:
         vae.to(accelerator.device, dtype=torch.float32)
-    move_modules_to_device(accelerator.device, text_encoder_one, text_encoder_two, unet, weight_dtype)
+    text_encoder_one.to(accelerator.device, dtype=weight_dtype)
+    text_encoder_two.to(accelerator.device, dtype=weight_dtype)
+    #The Vae would be transferred to the device after computing embedings to reduce memory impact on vae
 
     # Here, we compute not just the text embeddings but also the additional embeddings
     # needed for the SD XL UNet to operate.
@@ -1219,6 +1221,8 @@ def main(args):
     del text_encoders, tokenizers
     gc.collect()
     torch.cuda.empty_cache()
+
+    unet.to(accelerator.device, dtype=weight_dtype)
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
