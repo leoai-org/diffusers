@@ -68,11 +68,26 @@ check_min_version("0.27.0.dev0")
 logger = get_logger(__name__)
 
 
-def log_validation(vae, unet, controlnet, args, accelerator, weight_dtype, step):
+def init_vae(args):
+    vae_path = (
+        args.pretrained_model_name_or_path
+        if args.pretrained_vae_model_name_or_path is None
+        else args.pretrained_vae_model_name_or_path
+    )
+    vae = AutoencoderKL.from_pretrained(
+        vae_path,
+        subfolder="vae" if args.pretrained_vae_model_name_or_path is None else None,
+        revision=args.revision,
+        variant=args.variant,
+    )
+    return vae
+
+
+def log_validation(unet, controlnet, args, accelerator, weight_dtype, step):
     logger.info("Running validation... ")
 
     controlnet = accelerator.unwrap_model(controlnet)
-
+    vae = init_vae(args)
     pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
         args.pretrained_model_name_or_path,
         vae=vae,
@@ -1000,17 +1015,7 @@ def main(args):
     text_encoder_two = text_encoder_cls_two.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="text_encoder_2", revision=args.revision, variant=args.variant
     )
-    vae_path = (
-        args.pretrained_model_name_or_path
-        if args.pretrained_vae_model_name_or_path is None
-        else args.pretrained_vae_model_name_or_path
-    )
-    vae = AutoencoderKL.from_pretrained(
-        vae_path,
-        subfolder="vae" if args.pretrained_vae_model_name_or_path is None else None,
-        revision=args.revision,
-        variant=args.variant,
-    )
+    vae = init_vae(args)
     unet = UNet2DConditionModel.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="unet", revision=args.revision, variant=args.variant
     )
@@ -1410,7 +1415,7 @@ def main(args):
                     if args.validation_prompt is not None and global_step % args.validation_steps == 0:
                         unet.to('cpu', dtype=weight_dtype)
                         image_logs = log_validation(
-                            vae, unet, controlnet, args, accelerator, weight_dtype, global_step
+                            unet, controlnet, args, accelerator, weight_dtype, global_step
                         )
                         unet.to(accelerator.device, dtype=weight_dtype)
 
