@@ -1139,15 +1139,10 @@ def main(args):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    # Move vae, unet and text_encoder to device and cast to weight_dtype
-    # The VAE is in float32 to avoid NaN losses.
-    if args.pretrained_vae_model_name_or_path is not None:
-        vae.to(accelerator.device, dtype=weight_dtype)
-    else:
-        vae.to(accelerator.device, dtype=torch.float32)
+
     text_encoder_one.to(accelerator.device, dtype=weight_dtype)
     text_encoder_two.to(accelerator.device, dtype=weight_dtype)
-    #The Vae would be transferred to the device after computing embedings to reduce memory impact on vae
+    #The Unet and Vae would be transferred to the device after computing embedings to reduce memory impact on vae
 
     # Here, we compute not just the text embeddings but also the additional embeddings
     # needed for the SD XL UNet to operate.
@@ -1186,7 +1181,6 @@ def main(args):
         tokenizers=tokenizers,
         proportion_empty_prompts=args.proportion_empty_prompts,
     )
-    compute_vae_encodings_fn = functools.partial(compute_vae_encodings, vae=vae, weight_dtype=weight_dtype, device=accelerator.device)
 
     data_fingerprint_str = f'{args.dataset_name}_{args.train_data_dir}_ver{train_dataset.version}'
 
@@ -1197,10 +1191,19 @@ def main(args):
         # details: https://github.com/huggingface/diffusers/pull/4038#discussion_r1266078401
         new_fingerprint = Hasher.hash(f'{data_fingerprint_str}_dtype{weight_dtype}')
         print('starting text embedding mapping')
-        train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, batch_size=2000, new_fingerprint=new_fingerprint, load_from_cache_file=not args.recalc_cached_embeddings)
+        train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, batch_size=args.train_batch_size * 500, new_fingerprint=new_fingerprint, load_from_cache_file=not args.recalc_cached_embeddings)
 
     # Then get the training dataset ready to be passed to the dataloader.
     train_dataset = prepare_train_dataset(train_dataset, accelerator)
+
+    # Move vae, unet and text_encoder to device and cast to weight_dtype
+    # The VAE is in float32 to avoid NaN losses.
+    if args.pretrained_vae_model_name_or_path is not None:
+        vae.to(accelerator.device, dtype=weight_dtype)
+    else:
+        vae.to(accelerator.device, dtype=torch.float32)
+
+    compute_vae_encodings_fn = functools.partial(compute_vae_encodings, vae=vae, weight_dtype=weight_dtype, device=accelerator.device)
 
     # added map to compute vae encodings
     if args.precompute_latents:
