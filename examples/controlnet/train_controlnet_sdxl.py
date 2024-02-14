@@ -128,6 +128,8 @@ def log_validation(vae, unet, controlnet, args, accelerator, weight_dtype, step)
             {"validation_image": validation_image, "images": images, "validation_prompt": validation_prompt}
         )
 
+    pipeline.to("cpu")
+
     for tracker in accelerator.trackers:
         if tracker.name == "tensorboard":
             for log in image_logs:
