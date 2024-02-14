@@ -296,6 +296,12 @@ def parse_args(input_args=None):
         default=None,
         help="The directory where the downloaded models and datasets will be stored.",
     )
+    parser.add_argument(
+        "--recalc_cached_embeddings",
+        action="store_true",
+        default=False,
+        help="Whether or not to use cached embeddings for the VAE and text. This is useful for large and preserving GPU memory.",
+    )
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
     parser.add_argument(
         "--resolution",
@@ -1191,7 +1197,7 @@ def main(args):
                 batched=True,
                 batch_size=args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps,
                 new_fingerprint=new_fingerprint_for_vae,
-                load_from_cache_file=True
+                load_from_cache_file=not args.recalc_cached_embeddings
             )
 
     del text_encoders, tokenizers
@@ -1204,6 +1210,7 @@ def main(args):
         collate_fn=functools.partial(collate_fn, precomputed_latents=args.precompute_latents),
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
+        load_from_cache_file=not args.recalc_cached_embeddings
     )
 
     # Scheduler and math around the number of training steps.
