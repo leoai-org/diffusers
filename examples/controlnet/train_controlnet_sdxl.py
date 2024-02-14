@@ -112,6 +112,7 @@ def log_validation(vae, unet, controlnet, args, accelerator, weight_dtype, step)
 
     for validation_prompt, validation_image in zip(validation_prompts, validation_images):
         validation_image = Image.open(validation_image).convert("RGB")
+        validation_image = process_scrible(validation_image, deterministic=True)
         validation_image = validation_image.resize((args.resolution, args.resolution))
 
         images = []
@@ -784,8 +785,8 @@ def nms(x, t, s):
     return z
 
 
-def process_scrible(x):
-    detect_threshold, nms_threshold, sigma1, sigma2,elastic_mangtitude, elastic_smoothness = get_scrible_params()
+def process_scrible(x, deterministic=False):
+    detect_threshold, nms_threshold, sigma1, sigma2,elastic_mangtitude, elastic_smoothness = get_scrible_params(deterministic=deterministic)
     x = np.array(x)
     input_image = HWC3(x)
     detected_map = nms(input_image, nms_threshold, sigma1)
@@ -805,26 +806,33 @@ def process_scrible(x):
     detected_map = Image.fromarray(detected_map)
     return detected_map
 
+def get_random_params(min, max, type, deterministic=False):
+    if type == "int":
+        return random.randint(min, max) if not deterministic else (min + max) // 2
+    if type == "uniform":
+        return random.uniform(min, max) if not deterministic else (min + max) / 2
+
 
 def get_scrible_params(
-    nms_min_threshold = 110,
-    nms_max_threshold = 140,
-    min_sigma1 = 2.0,
-    max_sigma1 = 3.0,
-    min_sigma2 = 1.0,
-    max_sigma2 = 3.0,
-    min_detect_threshold = 3.0,
-    max_detect_threshold = 30.0,
-    elastic_parameters= {"gentle": {"min_elastic_mangtitude":30.0, "max_elastic_mangtitude":80.0, "min_elastic_smoothness":3.0, "max_elastic_smoothness":8.0}}
-    ):
-    sigma1 = random.uniform(min_sigma1, max_sigma1)
-    sigma2 = random.uniform(min_sigma2, max_sigma2)
-    nms_threshold = random.randint(nms_min_threshold, nms_max_threshold)
-    detect_threshold = random.randint(min_detect_threshold, max_detect_threshold)
-    elastic_transform = random.choice(list(elastic_parameters.values()))
-    elastic_mangtitude = random.uniform(elastic_transform["min_elastic_mangtitude"], elastic_transform["max_elastic_mangtitude"])
-    elastic_smoothness = random.uniform(elastic_transform["min_elastic_smoothness"], elastic_transform["max_elastic_smoothness"])
-    return detect_threshold, nms_threshold, sigma1, sigma2,elastic_mangtitude,elastic_smoothness
+        deterministic=False,
+        nms_min_threshold = 110,
+        nms_max_threshold = 140,
+        min_sigma1 = 2.0,
+        max_sigma1 = 3.0,
+        min_sigma2 = 1.0,
+        max_sigma2 = 3.0,
+        min_detect_threshold = 3.0,
+        max_detect_threshold = 30.0,
+        elastic_parameters= {"gentle": {"min_elastic_mangtitude":30.0, "max_elastic_mangtitude":80.0, "min_elastic_smoothness":3.0, "max_elastic_smoothness":8.0}}
+        ):
+    sigma1 = get_random_params(min_sigma1, max_sigma1, "uniform", deterministic)
+    sigma2 = get_random_params(min_sigma2, max_sigma2, "uniform", deterministic)
+    nms_threshold = get_random_params(nms_min_threshold, nms_max_threshold, "int", deterministic)
+    detect_threshold = get_random_params(min_detect_threshold, max_detect_threshold, "int", deterministic)
+    elastic_transform = random.choice(list(elastic_parameters.values())) if not deterministic else elastic_parameters["gentle"]
+    elastic_mangtitude = get_random_params(elastic_transform["min_elastic_mangtitude"], elastic_transform["max_elastic_mangtitude"], "uniform", deterministic)
+    elastic_smoothness = get_random_params(elastic_transform["min_elastic_smoothness"], elastic_transform["max_elastic_smoothness"], "uniform", deterministic)
+    return detect_threshold, nms_threshold, sigma1, sigma2, elastic_mangtitude, elastic_smoothness
 
 
 def HWC3(x):
