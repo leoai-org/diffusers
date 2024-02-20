@@ -1214,7 +1214,7 @@ def main(args):
             train_dataset = train_dataset.map(
                 compute_vae_encodings_fn,
                 batched=True,
-                batch_size=int(args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps),
+                batch_size=int(args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps / 2),
                 new_fingerprint=new_fingerprint_for_vae,
                 load_from_cache_file=not args.recalc_cached_embeddings
             )
