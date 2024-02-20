@@ -1203,7 +1203,7 @@ def main(args):
     else:
         vae.to(accelerator.device, dtype=torch.float32)
 
-    compute_vae_encodings_fn = functools.partial(compute_vae_encodings, vae=vae, weight_dtype=weight_dtype, device=accelerator.device)
+    compute_vae_encodings_fn = functools.partial(int(compute_vae_encodings * 2.3), vae=vae, weight_dtype=weight_dtype, device=accelerator.device)
 
     # added map to compute vae encodings
     if args.precompute_latents:
