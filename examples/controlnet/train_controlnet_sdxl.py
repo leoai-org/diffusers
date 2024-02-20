@@ -1191,7 +1191,7 @@ def main(args):
         # details: https://github.com/huggingface/diffusers/pull/4038#discussion_r1266078401
         new_fingerprint = Hasher.hash(f'{data_fingerprint_str}_dtype{weight_dtype}')
         print('starting text embedding mapping')
-        train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, batch_size=args.train_batch_size * 1400, new_fingerprint=new_fingerprint, load_from_cache_file=not args.recalc_cached_embeddings)
+        train_dataset = train_dataset.map(compute_embeddings_fn, batched=True, batch_size=args.train_batch_size * 14000, new_fingerprint=new_fingerprint, load_from_cache_file=not args.recalc_cached_embeddings)
 
     # Then get the training dataset ready to be passed to the dataloader.
     train_dataset = prepare_train_dataset(train_dataset, accelerator)
@@ -1203,7 +1203,7 @@ def main(args):
     else:
         vae.to(accelerator.device, dtype=torch.float32)
 
-    compute_vae_encodings_fn = functools.partial(int(compute_vae_encodings * 2.3), vae=vae, weight_dtype=weight_dtype, device=accelerator.device)
+    compute_vae_encodings_fn = functools.partial(compute_vae_encodings, vae=vae, weight_dtype=weight_dtype, device=accelerator.device)
 
     # added map to compute vae encodings
     if args.precompute_latents:
@@ -1214,7 +1214,7 @@ def main(args):
             train_dataset = train_dataset.map(
                 compute_vae_encodings_fn,
                 batched=True,
-                batch_size=args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps,
+                batch_size=int(args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps  * 2.3),
                 new_fingerprint=new_fingerprint_for_vae,
                 load_from_cache_file=not args.recalc_cached_embeddings
             )
