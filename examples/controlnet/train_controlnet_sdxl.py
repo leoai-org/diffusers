@@ -33,7 +33,8 @@ import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
 import transformers
-from accelerate import Accelerator, InitProcessGroupKwargs
+from accelerate import Accelerator
+from accelerate.utils import InitProcessGroupKwargs
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
 from datasets import load_dataset
@@ -960,6 +961,7 @@ def main(args):
         mixed_precision=args.mixed_precision,
         log_with=args.report_to,
         project_config=accelerator_project_config,
+        kwargs_handlers=[init_pg_kwargs],
     )
 
     # Make one log on every process with the configuration for debugging.
