@@ -22,6 +22,8 @@ import os
 import random
 import shutil
 import subprocess
+from datetime import timedelta
+
 import cv2
 from pathlib import Path
 
@@ -31,7 +33,7 @@ import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
 import transformers
-from accelerate import Accelerator
+from accelerate import Accelerator, InitProcessGroupKwargs
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
 from datasets import load_dataset
@@ -949,6 +951,9 @@ def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
+
+    # Set a custom timeout (e.g., 60 minutes)
+    init_pg_kwargs = InitProcessGroupKwargs(timeout=timedelta(days=60))
 
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
