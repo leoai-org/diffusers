@@ -86,11 +86,11 @@ def init_vae(args):
     return vae
 
 
-def log_validation(unet, vae, controlnet, args, accelerator, weight_dtype, step):
+def log_validation(vae, unet, controlnet, args, accelerator, weight_dtype, step):
     logger.info("Running validation... ")
 
     controlnet = accelerator.unwrap_model(controlnet)
-    # vae = init_vae(args)
+
     pipeline = StableDiffusionXLControlNetPipeline.from_pretrained(
         args.pretrained_model_name_or_path,
         vae=vae,
@@ -1426,15 +1426,9 @@ def main(args):
                         save_to_bucket(args, blocking=False)
 
                     if args.validation_prompt is not None and global_step % args.validation_steps == 0:
-                        move_modules_to_device('cpu', text_encoder_one, text_encoder_two, unet,
-                                               weight_dtype)
-
                         image_logs = log_validation(
-                            unet, vae, controlnet, args, accelerator, weight_dtype, global_step
+                            vae, unet, controlnet, args, accelerator, weight_dtype, global_step
                         )
-                        vae.to('cpu')
-                        move_modules_to_device(accelerator.device, text_encoder_one, text_encoder_two, unet,
-                                               weight_dtype)
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
