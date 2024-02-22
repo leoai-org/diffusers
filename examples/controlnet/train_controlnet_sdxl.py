@@ -1146,10 +1146,15 @@ def main(args):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-
+    # Move vae, unet and text_encoder to device and cast to weight_dtype
+    # The VAE is in float32 to avoid NaN losses.
+    if args.pretrained_vae_model_name_or_path is not None:
+        vae.to(accelerator.device, dtype=weight_dtype)
+    else:
+        vae.to(accelerator.device, dtype=torch.float32)
+    unet.to(accelerator.device, dtype=weight_dtype)
     text_encoder_one.to(accelerator.device, dtype=weight_dtype)
     text_encoder_two.to(accelerator.device, dtype=weight_dtype)
-    #The Unet and Vae would be transferred to the device after computing embedings to reduce memory impact on vae
 
     # Here, we compute not just the text embeddings but also the additional embeddings
     # needed for the SD XL UNet to operate.
@@ -1203,13 +1208,6 @@ def main(args):
     # Then get the training dataset ready to be passed to the dataloader.
     train_dataset = prepare_train_dataset(train_dataset, accelerator)
 
-    # Move vae, unet and text_encoder to device and cast to weight_dtype
-    # The VAE is in float32 to avoid NaN losses.
-    if args.pretrained_vae_model_name_or_path is not None:
-        vae.to(accelerator.device, dtype=weight_dtype)
-    else:
-        vae.to(accelerator.device, dtype=torch.float32)
-
     compute_vae_encodings_fn = functools.partial(compute_vae_encodings, vae=vae, weight_dtype=weight_dtype, device=accelerator.device)
 
     # added map to compute vae encodings
@@ -1232,7 +1230,6 @@ def main(args):
     gc.collect()
     torch.cuda.empty_cache()
 
-    unet.to(accelerator.device, dtype=weight_dtype)
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -1334,10 +1331,21 @@ def main(args):
     for epoch in range(first_epoch, args.num_train_epochs):
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(controlnet):
-                if not args.precompute_latents:
-                    latents = compute_vae_encodings(batch, vae, weight_dtype, device=accelerator.device)["latents"]
+                # if you want to precompute latents - uncomment the next section and comment the one after
+                # if not args.precompute_latents:
+                #     latents = compute_vae_encodings(batch, vae, weight_dtype, device=accelerator.device)["latents"]
+                # else:
+                #     latents = batch["latents"].to(dtype=weight_dtype)
+
+                # Convert images to latent space
+                if args.pretrained_vae_model_name_or_path is not None:
+                    pixel_values = batch["pixel_values"].to(dtype=weight_dtype)
                 else:
-                    latents = batch["latents"].to(dtype=weight_dtype)
+                    pixel_values = batch["pixel_values"]
+                latents = vae.encode(pixel_values).latent_dist.sample()
+                latents = latents * vae.config.scaling_factor
+                if args.pretrained_vae_model_name_or_path is None:
+                    latents = latents.to(weight_dtype)
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
