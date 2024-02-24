@@ -52,6 +52,7 @@ from diffusers import (
     ControlNetModel,
     DDPMScheduler,
     KarrasVeScheduler,
+    DPMSolverMultistepScheduler,
     KDPM2AncestralDiscreteScheduler,
     StableDiffusionXLControlNetPipeline,
     UNet2DConditionModel,
@@ -1019,7 +1020,7 @@ def main(args):
 
     # Load scheduler and models
     # noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
-    noise_scheduler = KarrasVeScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
+    noise_scheduler = DPMSolverMultistepScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
     # noise_scheduler = KDPM2AncestralDiscreteScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
     text_encoder_one = text_encoder_cls_one.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="text_encoder", revision=args.revision, variant=args.variant
