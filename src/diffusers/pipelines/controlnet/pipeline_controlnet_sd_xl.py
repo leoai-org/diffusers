@@ -930,6 +930,15 @@ class StableDiffusionXLControlNetPipeline(
         assert emb.shape == (w.shape[0], embedding_dim)
         return emb
 
+    def get_power_scheduler_param(self, current_step=0, total_steps=49, scale_power=0.0):
+        """
+        get the current step and reply with scale parameter to be used, in accordance with the stage and provided power to be used.
+        """
+        if scale_power < 0.1:
+            return 1
+        else:
+            return 1 - np.power(current_step / total_steps, 1.0 / scale_power)
+
     @property
     def guidance_scale(self):
         return self._guidance_scale
@@ -992,6 +1001,8 @@ class StableDiffusionXLControlNetPipeline(
         clip_skip: Optional[int] = None,
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
+        control_image_cond_schedule: float = 0.0,
+        controlnet_strength_schedule: float = 0.0,
         **kwargs,
     ):
         r"""
@@ -1120,6 +1131,14 @@ class StableDiffusionXLControlNetPipeline(
                 The list of tensor inputs for the `callback_on_step_end` function. The tensors specified in the list
                 will be passed as `callback_kwargs` argument. You will only be able to include variables listed in the
                 `._callback_tensor_inputs` attribute of your pipeine class.
+            control_image_cond_schedule ('float', *optional*):
+                Optional schedule to reduce the strength of the control image with timestamps by power of
+                control_image_cond_schedule. Defualts to 0.0 which means the control image injects the signal all of the
+                timestamps with full strength. Ampiracally, good value would be between 4.0 to 8.0.
+            controlnet_strength_schedule ('float', *optional*):
+                Optional schedule to reduce the strength of the control signal form the controlnet with timestamps by power of
+                controlnet_strength_schedule. Defualts to 0.0 which means the control image injects the signal all of the
+                timestamps with full strength. Ampiracally, good value would be between 2.0 to 4.0.
 
         Examples:
 
@@ -1365,7 +1384,12 @@ class StableDiffusionXLControlNetPipeline(
                 latent_model_input = torch.cat([latents] * 2) if self.do_classifier_free_guidance else latents
                 latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
 
-                added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids}
+                control_image_cond_scale = self.get_power_scheduler_param(i, len(timesteps),
+                                                                scale_power=control_image_cond_schedule)
+                controlnet_strength_scale = self.get_power_scheduler_param(i, len(timesteps),
+                                                                        scale_power=controlnet_strength_schedule)
+
+                added_cond_kwargs = {"text_embeds": add_text_embeds, "time_ids": add_time_ids, "control_image_cond_scale":control_image_cond_scale}
 
                 # controlnet(s) inference
                 if guess_mode and self.do_classifier_free_guidance:
@@ -1389,6 +1413,8 @@ class StableDiffusionXLControlNetPipeline(
                     if isinstance(controlnet_cond_scale, list):
                         controlnet_cond_scale = controlnet_cond_scale[0]
                     cond_scale = controlnet_cond_scale * controlnet_keep[i]
+
+                cond_scale = cond_scale * controlnet_strength_scale
 
                 down_block_res_samples, mid_block_res_sample = self.controlnet(
                     control_model_input,

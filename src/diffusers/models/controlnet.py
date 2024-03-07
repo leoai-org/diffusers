@@ -794,8 +794,10 @@ class ControlNetModel(ModelMixin, ConfigMixin, FromOriginalControlNetMixin):
         # 2. pre-process
         sample = self.conv_in(sample)
 
+        control_image_cond_scale = added_cond_kwargs['control_image_cond_scale']
+
         controlnet_cond = self.controlnet_cond_embedding(controlnet_cond)
-        sample = sample + controlnet_cond
+        sample = sample + controlnet_cond * control_image_cond_scale
 
         # 3. down
         down_block_res_samples = (sample,)
